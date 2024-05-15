@@ -1,14 +1,13 @@
 import gym
 import numpy as np
 import tensorflow as tf
-import tensorflow.python.keras as keras
+import matplotlib.pyplot as plt
+from collections import deque
 from tensorflow.python.keras.backend import argmax
 from tensorflow.python.keras.optimizers import adam_v2
-from collections import deque
 from tensorflow.python.keras import models, layers
+from tensorflow.python.keras.models import save_model, load_model
 from tensorflow.python.keras.losses import Huber
-from tensorflow.python.keras.models import save, load_model
-import matplotlib.pyplot as plt
 
 
 class DQN():
@@ -55,20 +54,20 @@ class DQN():
 
 class EnvironmentDQL():
     def __init__(self):
-        self.env = gym.make('procgen:procgen-fruitbot-v0', distribution_mode='easy', render_mode='human', use_backgrounds=False, num_levels=0)
-        self.n_train_episodes = 500
+        self.env = gym.make('procgen:procgen-fruitbot-v0', distribution_mode='easy', use_backgrounds=False, num_levels=0)
+        self.n_train_episodes = 5
         self.test_episodes = 100
         self.batch_size = 32
         self.update_target_network = 100
         self.epsilon = 1.0
-        self.epsilon_min = 0.15
+        self.epsilon_min = 0.1
         self.epsilon_max = 1.0
-        self.epsilon_random_frames = 5000
-        self.epsilon_exploration_frames = 100000
+        self.epsilon_random_steps = 5000
+        self.epsilon_exploration_steps = 100000
         self.gamma = 0.99
         self.epsilon_decay = 0.999
-        self.learning_rate = 0.001
-        self.save_path = 'model.keras'
+        self.learning_rate = 0.001  
+        self.save_path = "model.h5"
         self.state_space = self.env.observation_space.shape
         self.action_space = 3
         self.episode_reward_history = []
@@ -77,7 +76,7 @@ class EnvironmentDQL():
         
         self.dqn = DQN()
         self.train_dqn = self.dqn.create_model(self.state_space, self.action_space)
-        self.target_dqn = keras.models.clone_model(self.train_dqn)
+        self.target_dqn = models.clone_model(self.train_dqn)
 
 
     def train(self):
@@ -92,13 +91,13 @@ class EnvironmentDQL():
             while(not done):
                 #Choose action based on epsilon greedy
                 r = np.random.random()
-                if step_count < self.epsilon_random_frames or r < self.epsilon:
+                if step_count < self.epsilon_random_steps or r < self.epsilon:
                     action = np.random.choice(self.action_space)
                     #print('Random action: ', action)
                 else:
                     action = self.find_action(state)
                 
-                self.epsilon -= (self.epsilon_max - self.epsilon_min)/self.epsilon_exploration_frames
+                self.epsilon -= (self.epsilon_max - self.epsilon_min)/self.epsilon_exploration_steps
                 self.epsilon = max(self.epsilon_min, self.epsilon*self.epsilon_decay)
             
                 new_state, reward, done, _ = self.env.step(self.dqn.output_to_action(action))
@@ -108,6 +107,7 @@ class EnvironmentDQL():
                 step_count += 1
 
                 if step_count > self.batch_size and step_count % 4 == 0:
+                    #Sample from replay memory
                     indecies = np.random.choice(range(len(self.dqn.done_history)), self.batch_size) #Use len(done_history) to get the number of samples in the replay memory
                     state_sample = np.array(self.dqn.state_history)[indecies]
                     next_state_sample = np.array(self.dqn.next_state_history)[indecies]
@@ -155,15 +155,18 @@ class EnvironmentDQL():
                 print('Episode: ', episode_count, 'Reward: ', episode_reward)
                 print('Epsilon: ', self.epsilon)
                 print('Mean reward: ', np.mean(self.episode_reward_history))
-                print('Frame count: ', step_count)
+                print('Step count: ', step_count)
 
-        self.target_dqn.save(self.save_path)
+        save_model(self.train_dqn, self.save_path)
         self.env.close()
 
     def test(self):
-        self.env = gym.make('procgen:procgen-fruitbot-v0', distribution_mode='easy', render_mode='human')
+        self.env = gym.make('procgen:procgen-fruitbot-v0', distribution_mode='easy', use_backgrounds=False, num_levels=0)
+        print('Env setup')
         state = self.env.reset()
+        #self.target_dqn = self.dqn.create_model(self.state_space, self.action_space)
         self.target_dqn = load_model(self.save_path)
+        print('model loaded')
         for i in range(self.test_episodes):
             action = self.find_action(state)
             new_state, reward, done, _ = self.env.step(self.dqn.output_to_action(action))
@@ -176,9 +179,15 @@ class EnvironmentDQL():
         action = tf.argmax(output_probs[0]).numpy()
         return action
 
+def plot(data, title):
+    plt.plot(data)
+    plt.title(title)
+    plt.show()
+    plt.savefig(title + '.png')
+
 if __name__ == '__main__':  
     fruitbotDQL = EnvironmentDQL()
     fruitbotDQL.train()
-    plt.plot(fruitbotDQL.episode_reward_history)
+    print('Training done')
     fruitbotDQL.test()
 
