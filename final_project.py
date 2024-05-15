@@ -95,16 +95,18 @@ class EnvironmentDQL():
 
             while(not done):
                 #Choose action based on epsilon greedy
+                #Do some random exploration in the beginning
                 r = np.random.random()
                 if step_count < self.epsilon_random_steps or r < self.epsilon:
                     action = np.random.choice(self.action_space)
-                    #print('Random action: ', action)
                 else:
                     action = self.find_action(state)
+
+                if  step_count > self.epsilon_random_steps: #Decay epsilon after random exploration
+                    self.epsilon -= (self.epsilon_max - self.epsilon_min)/self.epsilon_exploration_steps
+                    self.epsilon = max(self.epsilon_min, self.epsilon*self.epsilon_decay)
                 
-                self.epsilon -= (self.epsilon_max - self.epsilon_min)/self.epsilon_exploration_steps
-                self.epsilon = max(self.epsilon_min, self.epsilon*self.epsilon_decay)
-            
+
                 new_state, reward, done, _ = self.env.step(self.dqn.output_to_action(action))
                 self.dqn.memory(state, action, reward, new_state, done)
                 state = new_state
@@ -132,12 +134,12 @@ class EnvironmentDQL():
                         #Calculate gradients
                         q_vals = self.train_dqn(state_sample)
                         q_action = tf.reduce_sum(tf.multiply(q_vals, mask), axis=1)
-                        self.q_action_history.append(q_action)
                         loss = self.loss_function(new_q_vals, q_action)
                     
                     grads = tape.gradient(loss, self.train_dqn.trainable_variables)
                     self.optimizer.apply_gradients(zip(grads, self.train_dqn.trainable_variables))
 
+                
                 if step_count % self.update_target_network == 0:
                     self.target_dqn.set_weights(self.train_dqn.get_weights())
                     print('Updated target network')
@@ -162,25 +164,27 @@ class EnvironmentDQL():
                 print('Epsilon: ', self.epsilon)
                 print('Mean reward: ', np.mean(self.episode_reward_history))
                 print('Step count: ', step_count)
-
+        
+        print(self.episode_reward_history)
         self.data_dict['episode_reward_history'] = self.episode_reward_history
         self.data_dict['q_action_history'] = self.q_action_history
+        print(self.data_dict['episode_reward_history'])
         self.save_data_to_json()
-        save_weights_to_json(self.target_dqn, self.save_path)
+        self.save_weights_to_json()
         
         self.env.close()
 
     def test(self):
-        self.env = gym.make('procgen:procgen-fruitbot-v0', distribution_mode='easy', use_backgrounds=False, num_levels=0)
+        self.env = gym.make('procgen:procgen-fruitbot-v0', distribution_mode='easy', render_mode="human", use_backgrounds=False, num_levels=0)
         state = self.env.reset()
         self.target_dqn = self.dqn.create_model(self.state_space, self.action_space)
-        self.target_dqn.set_weights(load_weights_from_json(self.save_path))
+        self.target_dqn.set_weights(self.load_weights_from_json())
         for i in range(self.test_episodes):
             action = self.find_action(state)
             new_state, reward, done, _ = self.env.step(self.dqn.output_to_action(action))
             state = new_state
-        
-    
+
+
     def find_action(self, state):
         state_tensor = tf.convert_to_tensor(state)
         state_tensor = tf.expand_dims(state_tensor, 0)
@@ -188,45 +192,45 @@ class EnvironmentDQL():
         action = tf.argmax(output_probs[0]).numpy()
         return action
     
+    
     def save_data_to_json(self):
         with open(self.save_data_path, 'w', encoding='utf-8') as f:
             json.dump(self.data_dict, f, ensure_ascii=False, indent=4)
     
+    def save_weights_to_json(self):
+        weights_pre = self.target_dqn.get_weights()
+        weights_dict = {}
+        for i, w in enumerate(weights_pre):
+            weights_dict["layer_" + str(i)] = w.tolist()
+        with open(self.save_weights_path, 'w', encoding='utf-8') as f:
+            json.dump(weights_dict, f, ensure_ascii=False, indent=4)
+
+        #Just to check if the weights are the same before and after saving
+        weights_post = self.load_weights_from_json()
+        flag = 0
+        for i in range(len(weights_post)):
+            if not np.equal(weights_pre[i], weights_post[i]).all():
+                flag = 1
+        if flag:
+            print('Weights not saved correctly')
+        else:
+            print('Weights saved correctly')
+
+
+    def load_weights_from_json(self):
+        weights = []
+        with open(self.save_weights_path) as f:
+            weights_dict = json.load(f)
+        for i in range(len(weights_dict)):
+            weights.append(np.array(weights_dict['layer_' + str(i)]))
+
+        return weights
 
 def plot(data, title):
     plt.plot(data)
     plt.title(title)
     plt.show()
     plt.savefig(title + '.png')
-
-def save_weights_to_json(model, path):
-    weights_pre = model.get_weights()
-    weights_dict = {}
-    for i, w in enumerate(weights_pre):
-        weights_dict["layer_" + str(i)] = w.tolist()
-    with open(path, 'w', encoding='utf-8') as f:
-        json.dump(weights_dict, f, ensure_ascii=False, indent=4)
-
-    weights_post = load_weights_from_json(path)
-    flag = 0
-    for i in range(len(weights_post)):
-        if not np.equal(weights_pre[i], weights_post[i]).all():
-            flag = 1
-    if flag:
-        print('Weights not saved correctly')
-    else:
-        print('Weights saved correctly')
-
-
-def load_weights_from_json(path):
-    weights = []
-    with open(path) as f:
-        weights_dict = json.load(f)
-    for i in range(len(weights_dict)):
-        weights.append(np.array(weights_dict['layer_' + str(i)]))
-
-    return weights
-
 
 
 if __name__ == '__main__':  
