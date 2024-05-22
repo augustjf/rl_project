@@ -7,15 +7,14 @@ from collections import deque
 from tensorflow.python.keras.backend import argmax
 from tensorflow.python.keras.optimizers import adam_v2
 from tensorflow.python.keras import models, layers
-from tensorflow.python.keras.models import save_model, load_model
 from tensorflow.python.keras.losses import Huber
-from tensorflow.python.keras.models import model_from_json
+from tensorflow.python.keras.activations import softmax
 
 
 class DQN():
     def __init__(self):
         self.dropout = 0.2
-        self.replay_memory_maxlen = 10000
+        self.replay_memory_maxlen = 100000
         #deque is more efficient than list for this purpose
         self.action_history = deque([], maxlen=self.replay_memory_maxlen)
         self.state_history = deque([], maxlen=self.replay_memory_maxlen)
@@ -34,6 +33,7 @@ class DQN():
         #model.add(layers.Dropout(self.dropout))
         model.add(layers.Dense(256))
         model.add(layers.Dense(action_space, activation='linear'))
+        model.add(layers.Activation('softmax'))
         return model
 
 
@@ -60,13 +60,12 @@ class EnvironmentDQL():
         self.epsilon_random_steps = 50000
         self.epsilon_exploration_steps = 1000000
         self.gamma = 0.99
-        self.epsilon_decay = 0.999
-        self.learning_rate = 0.001  
+        self.learning_rate = 0.001
         self.step_count = 0
         self.episode_step_count = 0
         self.episode_count = 0
-        self.save_weights_path = "./" + game + "weights.json"
-        self.save_data_path = "./" + game + "data.json"
+        self.save_weights_path = "./" + game + "/weights.json"
+        self.save_data_path = "./" + game + "/data.json"
         self.data_dict = {}
         self.state_space = self.env.observation_space.shape
         self.action_space = action_space
@@ -99,6 +98,7 @@ class EnvironmentDQL():
                 q = self.find_qs(state, train=True)
                 action = tf.argmax(q[0]).numpy()
                 ep_q_action.append(float(q.numpy()[0][action]))
+                q_probs = softmax(q)
 
                 r = np.random.random()
                 if self.step_count < self.epsilon_random_steps or r < self.epsilon:
@@ -219,11 +219,14 @@ class EnvironmentDQL():
         state = self.env.reset()
         self.target_dqn = self.dqn.create_model(self.state_space, self.action_space)
         self.target_dqn.set_weights(self.load_weights_from_json())
+        self.epsilon = 0.1
         for i in range(self.test_episodes):
             done = False
             while not done:
-                q = self.find_qs(state, train=False)
-                action = tf.argmax(q[0]).numpy()
+                q = self.find_qs(state, train=True)
+                q_probs = softmax(q)
+                action = tf.argmax(q_probs[0]).numpy()
+
                 new_state, _, done, _ = self.env.step(self.output_to_action(action))
                 state = new_state
                 if done:
@@ -278,8 +281,8 @@ class EnvironmentDQL():
 
 if __name__ == '__main__':  
     fruitbotDQL = EnvironmentDQL('maze', 4)
-    fruitbotDQL.train()
-    print('Training done')
+    #fruitbotDQL.train()
+    #print('Training done')
     fruitbotDQL.test()
 
 
