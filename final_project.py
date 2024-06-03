@@ -64,8 +64,8 @@ class EnvironmentDQL():
         self.step_count = 0
         self.episode_step_count = 0
         self.episode_count = 0
-        self.save_weights_path = "./" + game + "/weights.json"
-        self.save_data_path = "./" + game + "/data.json"
+        self.save_weights_path = "./" + game + "/weights_test.json"
+        self.save_data_path = "./" + game + "/data_test.json"
         self.data_dict = {}
         self.state_space = self.env.observation_space.shape
         self.action_space = action_space
@@ -80,6 +80,11 @@ class EnvironmentDQL():
         self.dqn = DQN()
         self.train_dqn = self.dqn.create_model(self.state_space, self.action_space)
         self.target_dqn = models.clone_model(self.train_dqn)
+
+        #Only to create the json file for data
+        with open(self.save_data_path, 'w', encoding='utf-8') as f:
+            json.dump({}, f, ensure_ascii=False, indent=4)
+
 
 
     def train(self):
@@ -247,8 +252,17 @@ class EnvironmentDQL():
     
 
     def save_data_to_json(self):
+        #To reduce the use of memory by saving all data in variable
+        with open(self.save_data_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            for key in data:
+                if key in self.data_dict:
+                    data[key] = data[key] + self.data_dict[key]
+                else:
+                    data[key] = self.data_dict[key]
         with open(self.save_data_path, 'w', encoding='utf-8') as f:
             json.dump(self.data_dict, f, ensure_ascii=False, indent=4)
+        self.data_dict = {}
     
 
     def save_weights_to_json(self):
@@ -283,8 +297,8 @@ class EnvironmentDQL():
 
 if __name__ == '__main__':  
     fruitbotDQL = EnvironmentDQL('fruitbot', 3)
-    #fruitbotDQL.train()
-    #print('Training done')
+    fruitbotDQL.train()
+    print('Training done')
     fruitbotDQL.test()
 
 
