@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 def plot(data_path, game, name):
-    with open('./'+ game + data_path) as f:
+    with open('./'+ game + '/' + data_path) as f:
         data = json.load(f)
     for key in data:
         # if key == 'episode_reward_history':

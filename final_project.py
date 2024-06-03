@@ -50,12 +50,12 @@ class EnvironmentDQL():
     def __init__(self, game, action_space):
         self.env = gym.make('procgen:procgen-' + game + '-v0', distribution_mode='easy', use_backgrounds=False, num_levels=0)
         self.game = game
-        self.n_train_episodes = 500000
+        self.n_train_episodes = 5000000
         self.test_episodes = 100
         self.batch_size = 32
         self.update_target_network = 1000
         self.epsilon = 1.0
-        self.epsilon_min = 0.1
+        self.epsilon_min = 0.2
         self.epsilon_max = 1.0
         self.epsilon_random_steps = 50000
         self.epsilon_exploration_steps = 1000000
@@ -96,9 +96,10 @@ class EnvironmentDQL():
                 #Choose action based on epsilon greedy
                 #Calculating q and action in order to save the q value for the best action 
                 q = self.find_qs(state, train=True)
-                action = tf.argmax(q[0]).numpy()
-                ep_q_action.append(float(q.numpy()[0][action]))
                 q_probs = softmax(q)
+                action = tf.argmax(q_probs[0]).numpy()
+                ep_q_action.append(float(q.numpy()[0][action]))
+                
 
                 r = np.random.random()
                 if self.step_count < self.epsilon_random_steps or r < self.epsilon:
@@ -109,7 +110,6 @@ class EnvironmentDQL():
                     self.epsilon = max(self.epsilon_min, self.epsilon)
                 
                 ep_epsilon.append(self.epsilon)
-
 
                 new_state, reward, done, _ = self.env.step(self.output_to_action(action))
                 self.dqn.memory(state, action, reward, new_state, done)
@@ -158,6 +158,7 @@ class EnvironmentDQL():
                     self.dqn.rewards_history.popleft()
                     self.dqn.done_history.popleft()
                 
+             
                 if done:
                     break
             
@@ -231,6 +232,7 @@ class EnvironmentDQL():
                 state = new_state
                 if done:
                     break
+    
 
 
     def find_qs(self, state, train):
@@ -280,7 +282,7 @@ class EnvironmentDQL():
 
 
 if __name__ == '__main__':  
-    fruitbotDQL = EnvironmentDQL('maze', 4)
+    fruitbotDQL = EnvironmentDQL('fruitbot', 3)
     #fruitbotDQL.train()
     #print('Training done')
     fruitbotDQL.test()
