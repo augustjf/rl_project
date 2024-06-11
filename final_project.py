@@ -28,9 +28,7 @@ class DQN():
         model.add(layers.Conv2D(filters=32, kernel_size=8, strides=4, activation='relu', data_format='channels_last', input_shape=state_space))
         model.add(layers.Conv2D(filters=64, kernel_size=4, strides=2, activation='relu'))
         model.add(layers.Conv2D(filters=64, kernel_size=3, strides=1, activation='relu'))
-        #model.add(layers.MaxPooling2D(pool_size=(2,2)))
         model.add(layers.Flatten())
-        #model.add(layers.Dropout(self.dropout))
         model.add(layers.Dense(256))
         model.add(layers.Dense(action_space, activation='linear'))
         model.add(layers.Activation('softmax'))
@@ -43,6 +41,13 @@ class DQN():
         self.next_state_history.append(next_state)
         self.rewards_history.append(reward)
         self.done_history.append(done)
+    
+    def pop_memory(self):
+        self.action_history.popleft()
+        self.state_history.popleft()
+        self.next_state_history.popleft()
+        self.rewards_history.popleft()
+        self.done_history.popleft()
 
 
 
@@ -63,6 +68,10 @@ class EnvironmentDQL():
         self.learning_rate = 0.001
         self.step_count = 0
         self.episode_step_count = 0
+        self.episode_reward = 0
+        self.episode_epsilon = 0
+        self.episode_loss = []
+        self.episode_q_action = []
         self.episode_count = 0
         self.save_weights_path = "./" + game + "/weights_test.json"
         self.save_data_path = "./" + game + "/data_test.json"
@@ -73,6 +82,7 @@ class EnvironmentDQL():
         self.ave_q_episode_history = []
         self.epsilon_history = []
         self.loss_history = []
+        self.mean_reward_history = []
         self.last_rewards = [] #Used to show the mean reward over the last 10 episodes
         self.optimizer = adam_v2.Adam(learning_rate=self.learning_rate)
         self.loss_function = Huber()
@@ -86,24 +96,22 @@ class EnvironmentDQL():
             json.dump({}, f, ensure_ascii=False, indent=4)
 
 
-
     def train(self):
         for i in range(self.n_train_episodes):
             state = self.env.reset()
             done = False
             action = 1
-            episode_reward = 0
+            self.episode_reward = 0
             self.episode_step_count = 0
-            ep_q_action = []
-            ep_loss = []
-            ep_epsilon = []
+            self.episode_q_action = []
+            self.episode_loss = []
             while(not done):
                 #Choose action based on epsilon greedy
                 #Calculating q and action in order to save the q value for the best action 
-                q = self.find_qs(state, train=True)
+                q = self.q_vals_from_state(state, train=True)
                 q_probs = softmax(q)
                 action = tf.argmax(q_probs[0]).numpy()
-                ep_q_action.append(float(q.numpy()[0][action]))
+                self.episode_q_action.append(float(q.numpy()[0][action]))
                 
 
                 r = np.random.random()
@@ -113,13 +121,11 @@ class EnvironmentDQL():
                 if self.step_count > self.epsilon_random_steps: #Decay epsilon after random exploration
                     self.epsilon -= (self.epsilon_max - self.epsilon_min)/self.epsilon_exploration_steps
                     self.epsilon = max(self.epsilon_min, self.epsilon)
-                
-                ep_epsilon.append(self.epsilon)
 
                 new_state, reward, done, _ = self.env.step(self.output_to_action(action))
                 self.dqn.memory(state, action, reward, new_state, done)
                 state = new_state
-                episode_reward += reward
+                self.episode_reward += reward
                 self.step_count += 1
                 self.episode_step_count += 1
 
@@ -146,7 +152,7 @@ class EnvironmentDQL():
                         q_action = tf.reduce_sum(tf.multiply(q_vals, mask), axis=1)
                         loss = self.loss_function(new_q_vals, q_action)
                     
-                    ep_loss.append(loss.numpy())
+                    self.episode_loss.append(loss.numpy())
                     grads = tape.gradient(loss, self.train_dqn.trainable_variables)
                     self.optimizer.apply_gradients(zip(grads, self.train_dqn.trainable_variables))
 
@@ -157,37 +163,20 @@ class EnvironmentDQL():
                 
                 if len(self.dqn.done_history) > self.dqn.replay_memory_maxlen:
                     #Limit the length of the replay memory
-                    self.dqn.action_history.popleft()
-                    self.dqn.state_history.popleft()
-                    self.dqn.next_state_history.popleft()
-                    self.dqn.rewards_history.popleft()
-                    self.dqn.done_history.popleft()
+                    self.dqn.pop_memory()
                 
              
                 if done:
                     break
             
-            self.last_rewards.append(episode_reward)
-            self.epsilon_history.append(np.mean(ep_epsilon))
-            self.loss_history.append(float(np.mean(ep_loss)))
-            self.ave_q_episode_history.append(np.mean(ep_q_action))
             self.episode_count += 1
-            self.episode_reward_history.append(episode_reward)
 
             if self.episode_count % 10 == 0:
-                print('\n')
-                print('Episode: ', self.episode_count)
-                print('Reward: ', episode_reward)
-                print('Epsilon: ', self.epsilon)
-                print('Mean reward: ', np.mean(self.last_rewards))
-                print('Mean loss: ', np.mean(ep_loss))
-                print('Step count: ', self.step_count)
+                self.print_info()
+                self.mean_reward_history.append(np.mean(self.last_rewards))
                 self.last_rewards = []
+                
             if self.episode_count % 50 == 0:
-                self.data_dict['episode_reward_history'] = self.episode_reward_history
-                self.data_dict['epsilon_history'] = self.epsilon_history
-                self.data_dict['ave_q_episode_history'] = self.ave_q_episode_history
-                self.data_dict['loss_history'] = self.loss_history
                 self.save_weights_to_json()
                 self.save_data_to_json()
   
@@ -195,6 +184,25 @@ class EnvironmentDQL():
         self.save_weights_to_json()
         
         self.env.close()
+
+    def test(self):
+            self.env = gym.make('procgen:procgen-' + self.game + '-v0', distribution_mode='easy', render_mode="human", use_backgrounds=False, num_levels=0)
+            state = self.env.reset()
+            self.target_dqn = self.dqn.create_model(self.state_space, self.action_space)
+            self.target_dqn.set_weights(self.load_weights_from_json())
+            self.epsilon = 0.1
+            for i in range(self.test_episodes):
+                done = False
+                while not done:
+                    q = self.q_vals_from_state(state, train=True)
+                    q_probs = softmax(q)
+                    action = tf.argmax(q_probs[0]).numpy()
+
+                    new_state, _, done, _ = self.env.step(self.output_to_action(action))
+                    state = new_state
+                    if done:
+                        break
+
 
     def output_to_action(self, output):
         if self.game == 'fruitbot':
@@ -218,29 +226,9 @@ class EnvironmentDQL():
                 return 7 #RIGHT
             else:
                 print('Invalid output')
-    
-
-    def test(self):
-        self.env = gym.make('procgen:procgen-' + self.game + '-v0', distribution_mode='easy', render_mode="human", use_backgrounds=False, num_levels=0)
-        state = self.env.reset()
-        self.target_dqn = self.dqn.create_model(self.state_space, self.action_space)
-        self.target_dqn.set_weights(self.load_weights_from_json())
-        self.epsilon = 0.1
-        for i in range(self.test_episodes):
-            done = False
-            while not done:
-                q = self.find_qs(state, train=True)
-                q_probs = softmax(q)
-                action = tf.argmax(q_probs[0]).numpy()
-
-                new_state, _, done, _ = self.env.step(self.output_to_action(action))
-                state = new_state
-                if done:
-                    break
-    
 
 
-    def find_qs(self, state, train):
+    def q_vals_from_state(self, state, train):
         state = state/255 #Normalize the state
         state_tensor = tf.convert_to_tensor(state)
         state_tensor = tf.expand_dims(state_tensor, 0)
@@ -252,7 +240,7 @@ class EnvironmentDQL():
     
 
     def save_data_to_json(self):
-        #To reduce the use of memory by saving all data in variable
+        #Reducing memory use by not saving all data in variable
         with open(self.save_data_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
             for key in data:
@@ -266,6 +254,11 @@ class EnvironmentDQL():
     
 
     def save_weights_to_json(self):
+        self.data_dict['episode_reward_history'] = self.episode_reward_history
+        self.data_dict['epsilon_history'] = self.epsilon_history
+        self.data_dict['ave_q_episode_history'] = self.ave_q_episode_history
+        self.data_dict['loss_history'] = self.loss_history
+
         weights_pre = self.target_dqn.get_weights()
         weights_dict = {}
         for i, w in enumerate(weights_pre):
@@ -273,7 +266,7 @@ class EnvironmentDQL():
         with open(self.save_weights_path, 'w', encoding='utf-8') as f:
             json.dump(weights_dict, f, ensure_ascii=False, indent=4)
 
-        #Just to check if the weights are the same before and after saving
+        #To check if the weights are the same before and after saving
         weights_post = self.load_weights_from_json()
         flag = 0
         for i in range(len(weights_post)):
@@ -294,6 +287,23 @@ class EnvironmentDQL():
 
         return weights
 
+
+    def print_info(self):
+        print('\n')
+        print('Episode: ', self.episode_count)
+        print('Reward: ', self.episode_reward)
+        print('Epsilon: ', self.epsilon)
+        print('Mean reward: ', np.mean(self.last_rewards))
+        print('Mean loss: ', np.mean(self.episode_loss))
+        print('Step count: ', self.step_count)
+        
+
+    def save_data_to_dict(self):
+        self.last_rewards.append(self.episode_reward)
+        self.epsilon_history.append(self.epsilon)
+        self.loss_history.append(float(np.mean(self.episode_loss)))
+        self.ave_q_episode_history.append(np.mean(self.episode_q_action))
+        self.episode_reward_history.append(self.episode_reward)
 
 if __name__ == '__main__':  
     fruitbotDQL = EnvironmentDQL('fruitbot', 3)
