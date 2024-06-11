@@ -105,6 +105,7 @@ class EnvironmentDQL():
             self.episode_step_count = 0
             self.episode_q_action = []
             self.episode_loss = []
+
             while(not done):
                 #Choose action based on epsilon greedy
                 #Calculating q and action in order to save the q value for the best action 
@@ -169,6 +170,7 @@ class EnvironmentDQL():
                 if done:
                     break
             
+            self.last_rewards.append(self.episode_reward)
             self.episode_count += 1
 
             if self.episode_count % 10 == 0:
