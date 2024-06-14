@@ -54,9 +54,9 @@ class DQN():
 
 class EnvironmentDQL():
     def __init__(self, game, action_space):
-        self.env = gym.make('procgen:procgen-' + game + '-v0', distribution_mode='easy', use_backgrounds=False, num_levels=1)
+        self.env = gym.make('procgen:procgen-' + game + '-v0', distribution_mode='easy', use_backgrounds=False, num_levels=0)
         self.game = game
-        self.n_train_episodes = 5000000
+        self.n_train_episodes = 500000
         self.test_episodes = 100
         self.batch_size = 32
         self.update_target_network = 1000
@@ -74,8 +74,8 @@ class EnvironmentDQL():
         self.episode_loss = []
         self.episode_q_action = []
         self.episode_count = 0
-        self.save_weights_path = "./" + game + "/weights_single_level.json"
-        self.save_data_path = "./" + game + "/data_single_level.json"
+        self.save_weights_path = "./" + game + "/weights.json"
+        self.save_data_path = "./" + game + "/data.json"
         self.data_dict = {}
         self.state_space = self.env.observation_space.shape
         self.action_space = action_space
@@ -310,7 +310,7 @@ class EnvironmentDQL():
 
 if __name__ == '__main__':  
     fruitbotDQL = EnvironmentDQL('fruitbot', 3)
-    fruitbotDQL.train()
+    fruitbotDQL.train() #Comment out this line in order to test
     print('Training done')
     fruitbotDQL.test()
 
