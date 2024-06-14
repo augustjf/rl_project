@@ -1,0 +1,6 @@
+{
+    "episode_reward_history": [],
+    "epsilon_history": [],
+    "ave_q_episode_history": [],
+    "loss_history": []
+}
